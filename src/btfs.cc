@@ -64,6 +64,10 @@ pthread_cond_t signal_cond = PTHREAD_COND_INITIALIZER;
 
 static struct btfs_params params;
 
+bool wait_setup = true;
+pthread_mutex_t wait_setup_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t wait_setup_cond = PTHREAD_COND_INITIALIZER;
+
 static bool
 move_to_next_unfinished(int& piece, int num_pieces) {
 	for (; piece < num_pieces; piece++) {
@@ -222,6 +226,8 @@ setup() {
 		// Path <-> file index mapping
 		files["/" + ti.file_at(i).path] = i;
 	}
+	wait_setup = false;
+	pthread_cond_broadcast(&wait_setup_cond);
 }
 
 static void
@@ -376,6 +382,11 @@ is_file(const char *path) {
 
 static int
 btfs_getattr(const char *path, struct stat *stbuf) {
+	if ( wait_setup ) {
+		pthread_cond_wait(&wait_setup_cond, &wait_setup_lock);
+		wait_setup = false;
+	}
+
 	if (!is_dir(path) && !is_file(path) && strcmp(path, "/") != 0)
 		return -ENOENT;
 
@@ -409,6 +420,11 @@ btfs_getattr(const char *path, struct stat *stbuf) {
 static int
 btfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		off_t offset, struct fuse_file_info *fi) {
+	if ( wait_setup ) {
+		pthread_cond_wait(&wait_setup_cond, &wait_setup_lock);
+		wait_setup = false;
+	}
+
 	if (!is_dir(path) && !is_file(path) && strcmp(path, "/") != 0)
 		return -ENOENT;
 
@@ -432,6 +448,11 @@ btfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 static int
 btfs_open(const char *path, struct fuse_file_info *fi) {
+	if ( wait_setup ) {
+		pthread_cond_wait(&wait_setup_cond, &wait_setup_lock);
+		wait_setup = false;
+	}
+
 	if (!is_dir(path) && !is_file(path))
 		return -ENOENT;
 
@@ -447,6 +468,11 @@ btfs_open(const char *path, struct fuse_file_info *fi) {
 static int
 btfs_read(const char *path, char *buf, size_t size, off_t offset,
 		struct fuse_file_info *fi) {
+	if ( wait_setup ) {
+		pthread_cond_wait(&wait_setup_cond, &wait_setup_lock);
+		wait_setup = false;
+	}
+
 	//printf("%s: %s %lu %ld\n", __func__, path, size, offset);
 
 	if (!is_dir(path) && !is_file(path))
